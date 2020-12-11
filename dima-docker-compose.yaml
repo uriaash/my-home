@@ -1,0 +1,366 @@
+version: '3.8'
+services:
+    mariadb:
+        restart: always
+        hostname: mariadb
+        container_name: mariadb
+        image: mariadb:latest
+        environment:
+          PUID: 0
+          PGID: 0
+          TZ: "Asia/Jerusalem"
+          MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+          MYSQL_ROOT_HOST: "%"
+        ports:
+          - "3306:3306"
+        volumes:
+          - /home/dima/docker-mounts/mariadb:/var/lib/mysql
+      
+      
+  #  minidlna:
+  #    hostname: miniDlna
+  #    container_name: miniDlna
+  #    image: vladgh/minidlna
+  #    volumes:
+  #      -  /media/dima/RouterHDD/Movies:/media
+  #    environment:
+  #      - MINIDLNA_FRIENDLY_NAME=MiniDlna
+  #      - MINIDLNA_PORT=8200
+  #      - MINIDLNA_MEDIA_DIR=/media
+  #    ports:
+  #      - 8200:8200
+  #    network_mode: "host"
+  #    restart: always
+  
+  
+    mqtt:
+        restart: always
+        hostname: mqtt
+        container_name: MQTT
+        image: eclipse-mosquitto:latest
+        environment:
+          TZ: "Asia/Jerusalem"
+          USER: ${MQTT_USER}
+          PASS: ${MQTT_PASS}
+        volumes:
+          - /home/dima/docker-mounts/mqtt/data:/mosquitto/data
+          - /home/dima/docker-mounts/mqtt/config:/mosquitto/config
+          - /home/dima/docker-mounts/mqtt/log:/mosquitto/log
+        network_mode: "bridge"
+        ports:
+          - "1883:1883"
+          - "9001:9001"
+
+    transmission:
+        restart: always
+        hostname: Transmission
+        container_name: Transmission
+        image: linuxserver/transmission:latest
+        environment:
+          TZ: "Asia/Jerusalem"
+          USER: ${TRANSMISSION_USER}
+          PASS: ${TRANSMISSION_PASS}
+        volumes:
+          - /media/dima/RouterHDD/Movies:/downloads
+          - /home/dima/docker-mounts/transmission:/config
+        network_mode: "host"
+
+    cloud9:
+        restart: always
+        hostname: cloud9
+        container_name: cloud9
+        image: linuxserver/cloud9:latest
+        environment:
+          PUID: 0
+          PGID: 0
+          TZ: "Asia/Jerusalem"
+        volumes:
+          - /home/dima/docker-mounts:/code
+          - /home/dima/platesMigration:/code/platesMigration
+          - /var/run/docker.sock:/var/run/docker.sock
+        network_mode: "bridge"
+        ports:
+          - "8000:8000"
+
+
+    homeassistant:
+        restart: always
+        hostname: homeassistant
+        container_name: Home-Assistant
+        image: homeassistant/home-assistant:stable
+        depends_on: 
+          - mariadb
+          - mqtt
+          - nginx
+        labels:
+          com.ouroboros.enable: "false"
+        environment:
+          TZ: "Asia/Jerusalem"
+          USER: ${HA_USER}
+          PASS: ${HA_PASS}
+        volumes:
+          - /home/dima/docker-mounts/ha:/config
+        network_mode: "host"
+
+    portainer:
+        restart: always
+        hostname: portainer
+        container_name: Portrainer
+        image: portainer/portainer-ce
+        environment:
+          TZ: "Asia/Jerusalem"
+        volumes:
+          - /var/run/docker.sock:/var/run/docker.sock
+          - /opt/portainer:/data
+        network_mode: "bridge"
+        ports:
+          - "9000:9000"
+
+    ftpserver:
+        restart: always
+        hostname: ftp-server
+        container_name: ftp-server
+        image: mauler/simple-ftp-server
+        environment:
+          TZ: "Asia/Jerusalem"
+          FTP_USER: ${FTP_USER}
+          FTP_PASS: ${FTP_PASS}
+        mac_address: 00:00:ff:ff:ff:01
+        volumes:
+          - /media/dima/RouterHDD/ftp:/ftp-home
+        ports:
+          - "11021:21"
+    
+
+    nginx: 
+      restart: always
+      image: nginx:latest
+      container_name: nginx
+      privileged: true
+      environment:
+        PUID: 0
+        PGID: 0
+      volumes:
+        - /home/dima/docker-mounts/nginx/etc/nginx:/etc/nginx
+        - /home/dima/docker-mounts/certbot/etc/letsencrypt:/etc/letsencrypt
+        - /home/dima/docker-mounts/certbot/www:/var/www/certbot
+        - /media/dima/RouterHDD/ftp:/ftp
+      network_mode: "host"
+
+    ouroboros:
+      image: pyouroboros/ouroboros
+      container_name: ouroboros
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
+      environment:
+        - TZ=Asia/Jerusalem
+        - "NOTIFIERS=${TELEGRAM_NOTIF}"
+        - CLEANUP=true
+        - LOG_LEVEL=info
+        - SELF_UPDATE=true
+        - LABEL_ENABLE=true
+        - LATEST=true
+        - CRON="0 6 * * *"
+      restart: always
+    
+    samba:
+      image: sixeyed/samba
+      container_name: samba
+      restart: always
+      environment:
+        BRIDGE: php-local
+      command: samba.sh -s "all;/mnt/RouterHDD;yes;no;yes;all" 
+      volumes:
+        - /media/dima/RouterHDD:/mnt/RouterHDD
+      ports:
+        - "139:139"
+        - "445:445"
+        - "137:137/udp"
+        - "138:138/udp"
+      
+    heimdall:
+      image: linuxserver/heimdall
+      container_name: heimdall
+      environment:
+        - PUID=1000
+        - PGID=1000
+        - TZ=Asia/Jerusalem
+      volumes:
+        - /home/dima/docker-mounts/heimdall/config:/config
+      ports:
+        - 880:80
+        - 8443:443
+      restart: always
+      
+    certbot:
+      container_name: certbotgo
+      restart: always
+      image: certbot/certbot
+      depends_on: 
+        - nginx
+      environment:
+        CERTBOT_EMAIL: ${CERTBOT_EMAIL}
+      volumes:
+        - /home/dima/docker-mounts/certbot/www:/var/www/certbot
+        - /home/dima/docker-mounts/certbot/etc/letsencrypt:/etc/letsencrypt
+      entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done;'"
+     
+     
+    duckdns:
+      image: linuxserver/duckdns
+      container_name: duckdns
+      environment:
+        - PUID=1000 #optional
+        - PGID=1000 #optional
+        - "SUBDOMAINS=${DUCKDNS_SUBDOMAIN}" #,sub2,sub3
+        - "TOKEN=${DUCKDNS_TOKEN}"
+        - LOG_FILE=false #optional
+        - TZ=Asia/Jerusalem
+      restart: always
+      
+    gosdm:
+      image: volkszaehler/mbmd
+      container_name: gosdm
+      command: run -c /etc/mbmd.yaml
+      cap_add:
+        - SYS_ADMIN
+      user: root
+      depends_on:
+        - mqtt
+      devices:
+        - /dev/ttyUSB0:/dev/ttyUSB0
+      ports:
+        - 63080:8080
+      network_mode: "bridge"
+      restart: always
+      volumes:
+      - /home/dima/docker-mounts/gosdm/mbmd.yaml:/etc/mbmd.yaml
+      
+    esphome:
+      container_name: esphome
+      image: esphome/esphome:latest
+      volumes:
+        - /home/dima/docker-mounts/esphome:/config:rw
+      network_mode: host
+      restart: always
+      ports:
+        - "6052:6052"
+      
+
+    pihole:
+      container_name: pihole
+      hostname: pihole
+      image: pihole/pihole:latest
+      ports:
+        - "53:53/tcp"
+        - "53:53/udp"
+        - "67:67/udp"
+        - "1080:80/tcp"
+        - "10443:443/tcp"
+      environment:
+        TZ: 'Asia/Jerusalem'
+        WEBPASSWORD: ${PIHOLE_PASS}
+      volumes:
+        - '/home/dima/docker-mounts/pihole/etc-pihole/:/etc/pihole/'
+        - '/home/dima/docker-mounts/pihole/etc-hosts:/etc/hosts'
+        - '/home/dima/docker-mounts/pihole/etc-dnsmasq.d/:/etc/dnsmasq.d/'
+        - '/home/dima/docker-mounts/pihole/pihole.log:/var/log/pihole.log'
+      dns:
+        - 127.0.0.1
+        - 9.9.9.9
+      cap_add:
+        - NET_ADMIN
+      restart: always
+     
+    adbserver:
+      image: sorccu/adb
+      hostname: adb
+      container_name: adb
+      restart: always
+      command: sh -c "/root/.android/startup.sh & adb -a -P 5037 server nodaemon"
+      network_mode: "host"
+      volumes:
+        - /home/dima/docker-mounts/adbserver:/root/.android
+        - /etc/timezone:/etc/timezone:ro
+        - /etc/localtime:/etc/localtime:ro
+      environment:
+        - PUID=1000
+        - TZ=Asia/Jerusalem
+        - LOG_LEVEL="info"
+        - KEYS_PATH="./root"
+      ports:
+        - "5037:5037"
+        
+    broadlinkmanager:
+      container_name: broadlinkmanager
+      image: techblog/broadlinkmanager
+      network_mode: host
+      container_name: broadlinkmanager
+      restart: always
+    
+    phpmyadmin:
+     image: phpmyadmin/phpmyadmin
+     container_name: phpmyadmin
+     environment:
+      - PMA_ARBITRARY=1
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+     restart: always
+     ports:
+      - 8080:80
+     volumes:
+      - /sessions
+      
+    motioneye:
+      image: ccrisan/motioneye:master-amd64
+      container_name: motioneye
+      ports:
+        - 8765:8765
+      hostname: motioneye
+      restart: always
+      volumes:
+       - /etc/localtime:/etc/localtime:ro
+       - /home/dima/docker-mounts/motioneye:/etc/motioneye
+       - /home/dima/docker-mounts/motioneye:/var/lib/motioneye
+    
+    jellyfin:
+        hostname: jellyfin
+        container_name: jellyfin
+        image: jellyfin/jellyfin
+        privileged: true
+        network_mode: "host"
+        restart: "unless-stopped"
+        environment:
+            TZ: "Asia/Jerusalem"
+        devices:
+          - /dev/dri:/dev/dri
+        volumes:
+          - /home/dima/docker-mounts/jellyfin/config:/config
+          - /home/dima/docker-mounts/jellyfin/cache:/cache
+          - /media/dima/RouterHDD/Movies:/video
+          
+        
+    # glances:
+    #   image: vimagick/glances
+    #   container_name: glances
+    #   volumes:
+    #     - /home/dima/docker-mounts/glances:/etc/glances
+    #     - /var/run/docker.sock:/var/run/docker.sock:ro
+    #   environment:
+    #     - GLANCES_OPT=-w
+    #   network_mode: host
+    #   pid: host
+    #   restart: always
+    
+    
+    havid-19:
+      image: techblog/havid-19
+      container_name: havid-19
+      restart: always
+      environment:
+        - USER_ID=5217038
+        - USER_KEY=${PARENTS_PASS}
+      ports:
+        - "6700:6700"
+      
+volumes:
+  sessions:
